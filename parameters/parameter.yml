@@ -1,0 +1,21 @@
+%YAML:1.0
+VoxelGrid_filter: 0
+VoxelGrid_x: 0.0004 #m
+VoxelGrid_y: 0.0004 #m
+VoxelGrid_z: 0.0004 #m
+
+PASS_filter: 1
+PASS_filter_x: "x"
+PASS_filter_y: "y"
+PASS_filter_x_min: -0.02  #m
+PASS_filter_x_max:  0.02  #m
+PASS_filter_y_min: -0.02  #m
+PASS_filter_y_max:  0.02  #m
+
+
+RadiusSearch: 0.001 #m used for searching K neighbour to estimate normal
+
+max_theta_to_ZAxis: 15 #deg
+
+image_width: 1920
+image_height: 1080
