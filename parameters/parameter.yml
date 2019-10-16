@@ -1,21 +1,35 @@
 %YAML:1.0
+
+VoxelGrid_filter_before_fitting_plane: 1
+VoxelGrid_filter_before_fitting_plane_x: 10 #mm
+VoxelGrid_filter_before_fitting_plane_y: 10 #mm
+VoxelGrid_filter_before_fitting_plane_z: 10 #mm
+
+PASS_filter_before_fitting_plane: 1
+
+
+##################################################################################
+
 VoxelGrid_filter: 0
-VoxelGrid_x: 0.0004 #m
-VoxelGrid_y: 0.0004 #m
-VoxelGrid_z: 0.0004 #m
+VoxelGrid_x: 0.4  #mm
+VoxelGrid_y: 0.4  #mm
+VoxelGrid_z: 0.4  #mm
 
 PASS_filter: 1
 PASS_filter_x: "x"
 PASS_filter_y: "y"
-PASS_filter_x_min: -0.02  #m
-PASS_filter_x_max:  0.02  #m
-PASS_filter_y_min: -0.02  #m
-PASS_filter_y_max:  0.02  #m
+PASS_filter_x_min: -20 #mm
+PASS_filter_x_max: 20  #mm
+PASS_filter_y_min: -20 #mm
+PASS_filter_y_max: 20  #mm
 
 
-RadiusSearch: 0.001 #m used for searching K neighbour to estimate normal
+RadiusSearch: 1  #mm used for searching K neighbour to estimate normal
 
-max_theta_to_ZAxis: 15 #deg
-
+max_theta_to_ZAxis: 5 #deg
+show_normal: 0
+curvature_expect_overshot_ratio: 4
+curvature_expect_down_ratio: 0.8 #easy to be effected by max values.
+expect_z_overshot: 0.5
 image_width: 1920
 image_height: 1080
