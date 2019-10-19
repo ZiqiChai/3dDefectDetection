@@ -1,20 +1,31 @@
 %YAML:1.0
 
+########################################### pre process before fitting plane ###########################################
+#对点云进行平面拟合（可选先进行体素滤波和带通滤波以加快处理速度），并且将点云旋转到传感器轴与测量平面垂直
 VoxelGrid_filter_before_fitting_plane: 1
 VoxelGrid_filter_before_fitting_plane_x: 10 #mm
 VoxelGrid_filter_before_fitting_plane_y: 10 #mm
 VoxelGrid_filter_before_fitting_plane_z: 10 #mm
 
+#对点云进行平面拟合（可选先进行体素滤波和带通滤波以加快处理速度），并且将点云旋转到传感器轴与测量平面垂直
+#we use VoxelGrid filter in the code for now, but you can also use PassThrough filter
 PASS_filter_before_fitting_plane: 1
+PASS_filter_x_before_fitting_plane: "x"
+PASS_filter_y_before_fitting_plane: "y"
+PASS_filter_x_min_before_fitting_plane: -20  #mm
+PASS_filter_x_max_before_fitting_plane:  20  #mm
+PASS_filter_y_min_before_fitting_plane: -20  #mm
+PASS_filter_y_max_before_fitting_plane:  20  #mm
 
 
-##################################################################################
 
+########################################### pre process before normal estimate ###########################################
 VoxelGrid_filter: 0
 VoxelGrid_x: 0.4  #mm
 VoxelGrid_y: 0.4  #mm
 VoxelGrid_z: 0.4  #mm
 
+#pass filter is used, so that we only detect defect within this area to speed up.
 PASS_filter: 1
 PASS_filter_x: "x"
 PASS_filter_y: "y"
@@ -24,12 +35,36 @@ PASS_filter_y_min: -20 #mm
 PASS_filter_y_max: 20  #mm
 
 
+
+################################################## Normal estimate ##################################################
 RadiusSearch: 1  #mm used for searching K neighbour to estimate normal
+show_normal: 0
 
 max_theta_to_ZAxis: 5 #deg
-show_normal: 0
+
 curvature_expect_overshot_ratio: 4
 curvature_expect_down_ratio: 0.8 #easy to be effected by max values.
 expect_z_overshot: 0.5
+
 image_width: 1920
 image_height: 1080
+
+
+
+################################################## DBSCN PARAM ##################################################
+exp: 1    #distanse to check neighbors
+MinPt: 15 #min point size to be a cluster, otherwise be lables to noise.
+
+
+
+############################################# Defect Selection PARAM #############################################
+MinPtDefect: 10 #min point size in a cluster to be a Defect, otherwise this cluster will be deleted.
+
+#offset to filter fake Defect caused by edge.
+PASS_filter_x_min_offset: -17 #mm
+PASS_filter_x_max_offset: 17 #mm
+PASS_filter_y_min_offset: -17 #mm
+PASS_filter_y_max_offset: 17  #mm
+
+
+normal_estimate_area_ratio: 3

@@ -32,7 +32,7 @@
 #include <Eigen/Eigen>
 
 //Customed
-#include<pointcloud_helper.h>
+#include "pointcloud_helper.h"
 
 #ifndef PI
 #define PI 3.1415926535897932384626433832795028841971693993751058209749445
@@ -47,5 +47,15 @@ using namespace pcl;
 
 cv::Mat getR2registeZ(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud);
 int loadPointCloudData(string inputFilename, pcl::PointCloud<pcl::PointXYZ>::Ptr cloud);
+Eigen::Matrix4f E2R(const double alpha, const double beta, const double gamma);
+void getCenter(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, float &x, float &y, float &z);
+Eigen::Matrix4f planeAlign(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud);
+pcl::Normal getLoopNormal(
+	const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
+	const pcl::PointCloud<pcl::Normal>::Ptr& normal,
+	pcl::PointXYZ& outer_max,
+	pcl::PointXYZ& outer_min,
+	pcl::PointXYZ& iner_max,
+	pcl::PointXYZ& iner_min);
 
 #endif
