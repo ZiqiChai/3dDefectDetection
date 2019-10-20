@@ -1,25 +1,32 @@
+//C++
+#include <stdlib.h>
 #include <string>
 #include <sstream>
 
-#include <pcl/features/normal_3d.h>
+//boost
 #include <boost/thread/thread.hpp>
-#include <pcl/visualization/pcl_visualizer.h>
-#include <pcl/filters/voxel_grid.h>
-#include "config.h"
-#include <stdlib.h>
+
+//PCL
 #include <pcl/point_types.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/io/ply_io.h>
+#include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/conditional_removal.h>
+#include <pcl/filters/voxel_grid.h>
 #include <pcl/common/transforms.h>
+#include <pcl/features/normal_3d.h>
 
+//OpenCV
 #include <opencv2/opencv.hpp>
 
 //Customed
+#include "config.h"
+#include "pointcloud_helper.h"
 #include "dbscan.h"
-#include<pointcloud_helper.h>
+#include "DefectDetect.h"
+
 
 using namespace std;
 using namespace cv;
@@ -31,135 +38,26 @@ using namespace cv;
 #define pi 3.1415926535897932384626433832795028841971693993751058209749445
 #endif
 
-clock_t begin, end;
-
-int cnt = 0;
-double xmin = 0;
-double ymin = 0;
-double zmin = 0;
-double xmax = 0;
-double ymax = 0;
-double zmax = 0;
-int intensity = 50;
-double dis = 0;
-bool isUnitMillimetre = false;
 
 
-Eigen::Matrix4f E2R(const double alpha, const double beta, const double gamma)
+int process(pcl::PointCloud<pcl::PointXYZ>::Ptr origin_cloud)
 {
-	Eigen::Matrix4f m;
-	m << cos(beta)*cos(gamma), cos(gamma)*sin(alpha)*sin(beta) - cos(alpha)*sin(gamma), sin(alpha)*sin(gamma) + cos(alpha)*cos(gamma)*sin(beta), 0,
-	cos(beta)*sin(gamma)   , cos(alpha)*cos(gamma) + sin(alpha)*sin(beta)*sin(gamma), cos(alpha)*sin(beta)*sin(gamma) - cos(gamma)*sin(alpha), 0,
-	-sin(beta)             , cos(beta)*sin(alpha)                                 , cos(alpha)*cos(beta)                                 , 0,
-	0                      , 0                                                    , 0                                                    , 1;
-	return m;
-}
-
-void getCenter(pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud, float &x, float &y, float &z)
-{
-	float sum_x = 0;
-	float max_x = 0;
-	float sum_y = 0;
-	float max_y = 0;
-	float sum_z = 0;
-	float max_z = 0;
-	for(pcl::PointCloud<pcl::PointXYZ>::iterator pt = cloud->points.begin(); pt < cloud->points.end(); pt++)
-	{
-		sum_x = sum_x+ pt->x;
-		sum_y = sum_y+ pt->y;
-		sum_z = sum_z+ pt->z;
-		if (max_x < pt->x)
-		{
-			max_x = pt->x;
-		}
-		if (max_y < pt->y)
-		{
-			max_y = pt->y;
-		}
-		if (max_z < pt->z)
-		{
-			max_z = pt->z;
-		}
-	}
-	x = sum_x/cloud->points.size();
-	y = sum_y/cloud->points.size();
-	z = sum_z/cloud->points.size();
-}
-
-Eigen::Matrix4f planeAlign(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud)
-{
-	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_out(new pcl::PointCloud<pcl::PointXYZ>);
-	Eigen::Matrix4f tf;
-	double a, b, c;
-	Eigen::MatrixXf data = Eigen::MatrixXf::Zero(cloud->width, 3);
-	tf << 1, 0, 0, 0,
-	0, 1, 0, 0,
-	0, 0, 1, 0,
-	0, 0, 0, 1;
-
-	Eigen::Vector3f mean;
-	mean.fill(0);
-	for(int i = 0; i < cloud->width; i++)
-	{
-		mean(0) += cloud->points[i].x;
-		mean(1) += cloud->points[i].y;
-		mean(2) += cloud->points[i].z;
-	}
-	mean /= cloud->width;
-	for(int i = 0; i < cloud->width; i++)
-	{
-		data(i, 0) = cloud->points[i].x - mean(0);
-		data(i, 1) = cloud->points[i].y - mean(1);
-		data(i, 2) = cloud->points[i].z - mean(2);
-	}
-
-	Eigen::JacobiSVD<Eigen::MatrixXf> svd(data, Eigen::ComputeThinU | Eigen::ComputeThinV);
-
-	Eigen::Matrix3f V;
-	V = svd.matrixV();
-	a = V(0, 2);
-	b = V(1, 2);
-	c = V(2, 2);
-    //cout<<a<<" "<<b<<" "<<c<<endl;
-
-	Eigen::Vector3f ver_y, ver_z, ver_plane;
-	double rad_y, rad_z;
-	ver_y << 0.0, 1.0, 0.0;
-	ver_z << 0.0, 0.0, 1.0;
-	ver_plane << a, b, c;
-	rad_y = PI / 2.0 - acos(ver_plane.dot(ver_y) / (ver_plane.norm() * ver_y.norm()));
-	rad_z = PI / 2.0 - acos(ver_plane.dot(ver_z) / (ver_plane.norm() * ver_z.norm()));
-	tf = E2R(0, rad_z, 0) * E2R(0, 0, -rad_y);
-	dis = -ver_plane.dot(mean);
-	vector<double> distance;
-	double temp;
-
-	for(int i = 0; i < cloud->width; i++)
-	{
-		temp = abs(a * cloud->points[i].x + b * cloud->points[i].y + c * cloud->points[i].z + dis) / sqrt(pow(a, 2) + pow(b, 2) + pow(c, 2));
-		distance.push_back(temp);
-	}
-
-	sort(distance.begin(), distance.end());
-
-	cout << "MAX distance between pointcloud with the plane : " << distance[distance.size() - 1] << endl;
-	return tf;
-}
-
-int main(int argc,char**argv)
-{
-	string paraFileName = "../parameters/parameter.yml";
-	Config::setParameterFile(paraFileName);
+	// string paraFileName = "../parameters/parameter.yml";
+	// Config::setParameterFile(paraFileName);
 
 	//创建点云对象
+	// pcl::PointCloud<pcl::PointXYZ>::Ptr origin_cloud(new pcl::PointCloud<pcl::PointXYZ>);
 	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
 	//创建法线的对象
 	pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+	//记录点云对齐的缸体变换矩阵
+	Eigen::Matrix4f tf;
 
 	//加载点云数据，命令行参数为文件名，文件可以是.PCD/.pcd/.PLY/.ply四种文件之一，单位可以是mm也可以是m.
-	string inputFilename=argv[1];
-	if(loadPointCloudData(inputFilename, cloud) != 0)
-		exit(-1);
+	// string inputFilename=argv[1];
+	// if(loadPointCloudData(inputFilename, origin_cloud) != 0)
+	// 	exit(-1);
+	pcl::copyPointCloud(*origin_cloud, *cloud);
 
 	//计算点云分布范围，如果分布范围大于1，说明单位是mm，小于1，说明单位是m.
 	//用于存放三个轴的最小值
@@ -167,8 +65,11 @@ int main(int argc,char**argv)
 	//用于存放三个轴的最大值
 	pcl::PointXYZ max;
 	pcl::getMinMax3D(*cloud,min,max);
-	std::cout<<"min.x = "<<min.x<<"  min.y = "<<min.y<<"  min.z = "<<min.z<<std::endl;
-	std::cout<<"max.x = "<<max.x<<"  max.y = "<<max.y<<"  max.z = "<<max.z<<std::endl;
+	std::cout<<"min.x = "<<min.x<<"  max.x = "<<max.x<<std::endl;
+	std::cout<<"min.y = "<<min.y<<"  max.y = "<<max.y<<std::endl;
+	std::cout<<"min.z = "<<min.z<<"  max.z = "<<max.z<<std::endl;
+	bool isUnitMillimetre = false;
+
 	if ( (std::abs(max.x-min.x)>1) | (std::abs(max.y-min.y)>1) | (std::abs(max.z-min.z)>1) )
 	{
 		isUnitMillimetre= true;
@@ -190,17 +91,16 @@ int main(int argc,char**argv)
 		min.y = 1000*min.y;
 		max.z = 1000*max.z;
 		min.z = 1000*min.z;
-		std::cout<<"min.x = "<<min.x<<"  min.y = "<<min.y<<"  min.z = "<<min.z<<std::endl;
-		std::cout<<"max.x = "<<max.x<<"  max.y = "<<max.y<<"  max.z = "<<max.z<<std::endl;
-
+		std::cout<<"min.x = "<<min.x<<"  max.x = "<<max.x<<std::endl;
+		std::cout<<"min.y = "<<min.y<<"  max.y = "<<max.y<<std::endl;
+		std::cout<<"min.z = "<<min.z<<"  max.z = "<<max.z<<std::endl;
 	}
-
-
 	//可视化
 	boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("Cloud Original"));
+	viewer->setBackgroundColor (0, 0, 0);
+	viewer->addCoordinateSystem(0.3*(max.y-min.y));
 	pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> single_color (cloud, 0, 255, 0);
 	viewer->addPointCloud(cloud, single_color, "Original");
-	viewer->addCoordinateSystem(0.3*(max.y-min.y));
 	while(!viewer->wasStopped())
 	{
 		viewer->spinOnce(100);
@@ -208,12 +108,12 @@ int main(int argc,char**argv)
 	}
 
 
+
+
 	//对点云进行平面拟合（可选先进行提速滤波和带通滤波以加快处理速度），并且将点云旋转到传感器轴与测量平面垂直
-	if (Config::get<bool>("VoxelGrid_filter_before_fitting_plane") && Config::get<bool>("PASS_filter_before_fitting_plane"))
+	if (Config::get<bool>("VoxelGrid_filter_before_fitting_plane"))
 	{
 		std::cout<<"VoxelGrid_filter_before_fitting_plane: "<<Config::get<bool>("VoxelGrid_filter_before_fitting_plane")<<std::endl;
-		std::cout<<"PASS_filter_before_fitting_plane: "<<Config::get<bool>("PASS_filter_before_fitting_plane")<<std::endl;
-
 		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
 		pcl::VoxelGrid<pcl::PointXYZ> vg;
 		//创建滤波对象
@@ -249,7 +149,7 @@ int main(int argc,char**argv)
 	else
 	{
 		cv::Mat cv_R = getR2registeZ(cloud);
-		Eigen::Matrix4f tf;
+		// Eigen::Matrix4f tf;
 		for (int i = 0; i < 3; ++i)
 		{
 			for (int j = 0; j < 3; ++j)
@@ -267,12 +167,12 @@ int main(int argc,char**argv)
 		pcl::transformPointCloud(*cloud, *cloud, tf.inverse());
 		std::cout<<"tf Matrix4f:\n"<<tf<<std::endl;
 	}
-
 	//可视化
 	boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer2(new pcl::visualization::PCLVisualizer("Cloud Transformed"));
+	viewer2->setBackgroundColor (0, 0, 0);
+	viewer2->addCoordinateSystem(0.3*(max.y-min.y));
 	pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ> single_color2 (cloud, 0, 255, 0);
 	viewer2->addPointCloud(cloud, single_color, "Transformed");
-	viewer2->addCoordinateSystem(0.3*(max.y-min.y));
 	while(!viewer2->wasStopped())
 	{
 		viewer2->spinOnce(100);
@@ -281,10 +181,10 @@ int main(int argc,char**argv)
 
 
 
+
 	if (Config::get<bool>("VoxelGrid_filter") && !Config::get<bool>("PASS_filter"))
 	{
 		std::cout<<"VoxelGrid_filter: "<<Config::get<bool>("VoxelGrid_filter")<<std::endl;
-
 		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
 		pcl::VoxelGrid<pcl::PointXYZ> vg;
 		//创建滤波对象
@@ -295,6 +195,8 @@ int main(int argc,char**argv)
 		vg.filter (*cloud_filtered);
 		//执行滤波
 
+
+
 		//创建法线估计的对象
 		pcl::NormalEstimation<pcl::PointXYZ,pcl::Normal> normalEstimation;
 		normalEstimation.setInputCloud(cloud_filtered);
@@ -306,15 +208,17 @@ int main(int argc,char**argv)
 		//计算法线
 		normalEstimation.compute(*normals);
 
+
+
 		//可视化
 		boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer3(new pcl::visualization::PCLVisualizer("Cloud Normals"));
 		viewer3->setBackgroundColor (0, 0, 0);
+		viewer3->addCoordinateSystem(0.3*(max.y-min.y));
 		// Coloring and visualizing target cloud (red).
 		pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>  target_color (cloud_filtered, 255, 0, 0);
 		viewer3->addPointCloud<pcl::PointXYZ> (cloud_filtered, target_color, "cloud_filtered");
 		viewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "cloud_filtered");
 		viewer3->addPointCloudNormals<pcl::PointXYZ, pcl::Normal>(cloud_filtered, normals, 1, (0.1*(max.x-min.x)), "normals");
-		viewer3->addCoordinateSystem(0.3*(max.y-min.y));
 		while(!viewer3->wasStopped())
 		{
 			viewer3->spinOnce(100);
@@ -324,21 +228,22 @@ int main(int argc,char**argv)
 	else if (Config::get<bool>("PASS_filter") && !Config::get<bool>("VoxelGrid_filter"))
 	{
 		std::cout<<"PASS_filter: "<<Config::get<bool>("PASS_filter")<<std::endl;
-
 		pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered(new pcl::PointCloud<pcl::PointXYZ>);
-
 		pcl::PassThrough<pcl::PointXYZ> pass;
 		pass.setInputCloud (cloud);
 		pass.setFilterFieldName (Config::get<string>("PASS_filter_x"));
 		pass.setFilterLimits (Config::get<float>("PASS_filter_x_min"), Config::get<float>("PASS_filter_x_max"));
 		std::cout<<"PASS_filter_x_min: "<<Config::get<float>("PASS_filter_x_min")<<std::endl;
 		std::cout<<"PASS_filter_x_max: "<<Config::get<float>("PASS_filter_x_max")<<std::endl;
-
+		pass.filter (*cloud_filtered);
+		pass.setInputCloud (cloud_filtered);
 		pass.setFilterFieldName (Config::get<string>("PASS_filter_y"));
 		pass.setFilterLimits (Config::get<float>("PASS_filter_y_min"), Config::get<float>("PASS_filter_y_max"));
 		std::cout<<"PASS_filter_y_min: "<<Config::get<float>("PASS_filter_y_min")<<std::endl;
 		std::cout<<"PASS_filter_y_max: "<<Config::get<float>("PASS_filter_y_max")<<std::endl;
 		pass.filter (*cloud_filtered);
+
+
 
 		//创建法线估计的对象
 		pcl::NormalEstimation<pcl::PointXYZ,pcl::Normal> normalEstimation;
@@ -351,6 +256,10 @@ int main(int argc,char**argv)
 		//计算法线
 		normalEstimation.compute(*normals);
 
+
+
+
+		/* Detect defect using normal_z*/
 		float max_theta_to_ZAxis =  Config::get<float>("max_theta_to_ZAxis");
 		std::cout<<"max_theta_to_ZAxis is: "<<max_theta_to_ZAxis<<"[deg]."<<std::endl;
 		float abs_z_expect = cos(max_theta_to_ZAxis/180*PI);
@@ -370,6 +279,10 @@ int main(int argc,char**argv)
 		pcl::PointCloud<pcl::PointXYZ>::Ptr cloudCP(new pcl::PointCloud<pcl::PointXYZ>);
 		pcl::copyPointCloud(*cloud_filtered, index, *cloudCP);
 
+
+
+
+		/* Detect defect using curvature*/
 		tmp_index =0;
 		index.clear();
 		float sum_curvature=0;
@@ -400,6 +313,9 @@ int main(int argc,char**argv)
 		pcl::copyPointCloud(*cloud_filtered, index, *cloudCP2);
 
 
+
+
+		/* Detect defect using pointcloud_z*/
 		float sum_z=0;
 		float max_z=0;
 		float avg_z=0;
@@ -429,6 +345,8 @@ int main(int argc,char**argv)
 		pcl::copyPointCloud(*cloud_filtered, index, *cloudCP3);
 
 
+
+		/*Cluster using DBSCN*/
 		std::vector<dbscn::Point> points;
 		dbscn::Point tmp_pt;
 		for (size_t i = 0; i < cloudCP->points.size(); ++i)
@@ -438,11 +356,8 @@ int main(int argc,char**argv)
 			points.push_back(tmp_pt);
 		}
 		vector<int> labels;
-
 		int num_cluster = dbscn::dbscan(points, labels, Config::get<float>("exp"), Config::get<int>("MinPt"));
-
 		cout<<"cluster size is "<<num_cluster<<endl;
-
 		for(int i = 0; i < (int)points.size(); i++)
 		{
 			std::cout<<"Point("<<points[i].x<<", "<<points[i].y<<"): "<<labels[i]<<std::endl;
@@ -451,18 +366,21 @@ int main(int argc,char**argv)
 
 
 
-
-
-
-
 		//可视化
-		boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer3(new pcl::visualization::PCLVisualizer("Cloud Normals"));
+		boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer3(new pcl::visualization::PCLVisualizer("Defect Dtect Results"));
 		viewer3->setBackgroundColor (0, 0, 0);
+		viewer3->addCoordinateSystem(0.3*(max.y-min.y));
+		if (Config::get<bool>("show_normal"))
+		{
+			viewer3->addPointCloudNormals<pcl::PointXYZ, pcl::Normal>(cloud_filtered, normals, 1, (0.1*(max.x-min.x)), "normals");
+		}
+		// pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>  cloud_color (cloud_filtered, 125, 125, 125);
+		// viewer3->addPointCloud<pcl::PointXYZ> (cloud, cloud_color, "cloud");
 		pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>  target_color (cloud_filtered, 0, 255, 0);
 		viewer3->addPointCloud<pcl::PointXYZ> (cloud_filtered, target_color, "cloud_filtered");
 		viewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "cloud_filtered");
 
-		for (int i = 0; i < num_cluster+2; i++)
+		for (int i = 1; i <= num_cluster; i++)
 		{
 			stringstream ss;
 			ss<<i;
@@ -476,52 +394,127 @@ int main(int argc,char**argv)
 			}
 			pcl::PointCloud<pcl::PointXYZ>::Ptr cloudCPn(new pcl::PointCloud<pcl::PointXYZ>);
 			pcl::copyPointCloud(*cloudCP, index, *cloudCPn);
-			std::string cloud_id="cloudCP"+ss.str();
+			std::string cloud_id="cloudCP_"+ss.str();
 			std::cout<<"\ncloud_id: "<<cloud_id <<", size: "<< cloudCPn->points.size() <<", MinPtDefect: "<<Config::get<int>("MinPtDefect")<<std::endl;
 			float xc,yc,zc;
 			getCenter(cloudCPn, xc,yc,zc);
 			if (cloudCPn->points.size()< Config::get<int>("MinPtDefect") )
 			{
+				std::cout<<"cluster has less points than the threshold, drop this cludter!"<<std::endl;
 				continue;
 			}
 			else if (xc < Config::get<float>("PASS_filter_x_min_offset") || xc >Config::get<float>("PASS_filter_x_max_offset") ||
 				yc < Config::get<float>("PASS_filter_y_min_offset") || yc > Config::get<float>("PASS_filter_y_max_offset") )
 			{
 				std::cout<<"xc,yc,zc: "<<xc<<" "<<yc<<" "<<zc<<std::endl;
+				std::cout<<"cluster centroid is too close to the edge, drop this cludter!"<<std::endl;
 				continue;
 			}
 			else
 			{
+				std::cout<<"xc,yc,zc: "<<xc<<" "<<yc<<" "<<zc<<std::endl;
 				pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>  target_color_cloudCPn (cloudCPn, 255, 0, 0);
 				viewer3->addPointCloud<pcl::PointXYZ> (cloudCPn, target_color_cloudCPn, cloud_id);
-				viewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5+i, cloud_id);
+				viewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, cloud_id);
 				viewer3->spinOnce(100);
 				getchar();
+
+				pcl::PointXYZ min_cloudCPn;
+				pcl::PointXYZ max_cloudCPn;
+				pcl::getMinMax3D(*cloudCPn,min_cloudCPn,max_cloudCPn);
+
+				std::cout
+				<<"min_x: "<<min_cloudCPn.x<<"max_x: "<<max_cloudCPn.x<<"\n"
+				<<"min_y: "<<min_cloudCPn.y<<"max_y: "<<max_cloudCPn.y<<"\n"
+				<<"min_z: "<<min_cloudCPn.z<<"max_z: "<<max_cloudCPn.z<<"\n"
+				<<std::endl;
+
+				pcl::transformPointCloud(*cloud, *cloud, tf.inverse());
+				getchar();
+				pcl::PointXYZ outer_max;
+				pcl::PointXYZ outer_min;
+				pcl::PointXYZ iner_max;
+				pcl::PointXYZ iner_min;
+				outer_min.x=min_cloudCPn.x-Config::get<float>("normal_estimate_area_ratio")*std::abs(max_cloudCPn.x-min_cloudCPn.x)/2;
+				outer_max.x=max_cloudCPn.x+Config::get<float>("normal_estimate_area_ratio")*std::abs(max_cloudCPn.x-min_cloudCPn.x)/2;
+				iner_min.x=min_cloudCPn.x;
+				iner_max.x=max_cloudCPn.x;
+				outer_min.y=min_cloudCPn.y-Config::get<float>("normal_estimate_area_ratio")*std::abs(max_cloudCPn.y-min_cloudCPn.y)/2;
+				outer_max.y=max_cloudCPn.y+Config::get<float>("normal_estimate_area_ratio")*std::abs(max_cloudCPn.y-min_cloudCPn.y)/2;
+				iner_min.y=min_cloudCPn.y;
+				iner_max.y=max_cloudCPn.y;
+				outer_min.z=min_cloudCPn.z-Config::get<float>("normal_estimate_area_ratio")*std::abs(max_cloudCPn.z-min_cloudCPn.z)/2;
+				outer_max.z=max_cloudCPn.z+Config::get<float>("normal_estimate_area_ratio")*std::abs(max_cloudCPn.z-min_cloudCPn.z)/2;
+				iner_min.z=min_cloudCPn.z;
+				iner_max.z=max_cloudCPn.z;
+				pcl::Normal avg_normal_estimation_area = getLoopNormal(cloud_filtered, normals,outer_max,outer_min, iner_max,iner_min);
+				std::cout<<"avg_normal_estimation_area: "
+				<<avg_normal_estimation_area.normal_x<<" "
+				<<avg_normal_estimation_area.normal_y<<" "
+				<<avg_normal_estimation_area.normal_z<<std::endl;
+
+
+
+				pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_filtered_CPn(new pcl::PointCloud<pcl::PointXYZ>);
+				pcl::PassThrough<pcl::PointXYZ> pass;
+				pass.setInputCloud (cloud);
+				pass.setFilterFieldName ("x");
+				pass.setFilterLimits (outer_min.x,outer_max.x);
+				std::cout<<"PASS_filter_x_min: "<<outer_min.x<<std::endl;
+				std::cout<<"PASS_filter_x_max: "<<outer_max.x<<std::endl;
+				pass.filter (*cloud_filtered_CPn);
+				pass.setFilterFieldName ("y");
+				pass.setFilterLimits (outer_min.y,outer_max.y);
+				std::cout<<"PASS_filter_y_min: "<<outer_min.y<<std::endl;
+				std::cout<<"PASS_filter_y_max: "<<outer_max.y<<std::endl;
+				pass.filter (*cloud_filtered_CPn);
+
+				pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>  normal_estimate_area_cloudCPn (cloud_filtered_CPn, 255, 255, 255);
+				viewer3->addPointCloud<pcl::PointXYZ> (cloud_filtered_CPn, normal_estimate_area_cloudCPn, cloud_id+"_normal_estimate_area");
+				viewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, cloud_id+"_normal_estimate_area");
 				viewer3->spinOnce(100);
+				getchar();
+
+				pass.setInputCloud (cloud_filtered_CPn);
+				pass.setFilterFieldName ("x");
+				pass.setFilterLimits (min_cloudCPn.x, max_cloudCPn.x);
+				std::cout<<"PASS_filter_x_min: "<<min_cloudCPn.x<<std::endl;
+				std::cout<<"PASS_filter_x_max: "<<max_cloudCPn.x<<std::endl;
+				pass.setFilterLimitsNegative (true);
+				pass.filter (*cloud_filtered_CPn);
+				pass.setFilterFieldName ("y");
+				pass.setFilterLimits (min_cloudCPn.y,max_cloudCPn.y);
+				std::cout<<"PASS_filter_y_min: "<<min_cloudCPn.y<<std::endl;
+				std::cout<<"PASS_filter_y_max: "<<max_cloudCPn.y<<std::endl;
+				pass.setFilterLimitsNegative (true);
+				pass.filter (*cloud_filtered_CPn);
+
+				pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>  normal_estimate_area_cloudCPn2 (cloud_filtered_CPn, 0, 255, 255);
+				viewer3->addPointCloud<pcl::PointXYZ> (cloud_filtered_CPn, normal_estimate_area_cloudCPn2, cloud_id+"_normal_estimate_area2");
+				viewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, cloud_id+"_normal_estimate_area2");
+				viewer3->spinOnce(100);
+				getchar();
+
 			}
-
-
 		}
 
+
+
+		//可视化，法向量检测到的缺陷
 		// pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>  target_color_cloudCP (cloudCP, 255, 0, 0);
 		// viewer3->addPointCloud<pcl::PointXYZ> (cloudCP, target_color_cloudCP, "cloudCP");
 		// viewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "cloudCP");
 
+		//可视化，曲率检测到的缺陷
 		// pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>  target_color_cloudCP2 (cloudCP2, 0, 0, 255);
 		// viewer3->addPointCloud<pcl::PointXYZ> (cloudCP2, target_color_cloudCP2, "cloudCP2");
 		// viewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "cloudCP2");
 
+		//可视化，Z阈值检测到的缺陷
 		// pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>  target_color_cloudCP3 (cloudCP3, 0, 255, 255);
 		// viewer3->addPointCloud<pcl::PointXYZ> (cloudCP3, target_color_cloudCP3, "cloudCP3");
 		// viewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 5, "cloudCP3");
 
-
-		if (Config::get<bool>("show_normal"))
-		{
-			viewer3->addPointCloudNormals<pcl::PointXYZ, pcl::Normal>(cloud_filtered, normals, 1, (0.1*(max.x-min.x)), "normals");
-		}
-
-		viewer3->addCoordinateSystem(0.3*(max.y-min.y));
 		while(!viewer3->wasStopped())
 		{
 			viewer3->spinOnce(100);
@@ -544,40 +537,18 @@ int main(int argc,char**argv)
 		//可视化
 		boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer3(new pcl::visualization::PCLVisualizer("Cloud Normals"));
 		viewer3->setBackgroundColor (0, 0, 0);
+		viewer3->addCoordinateSystem(0.3*(max.y-min.y));
 		// Coloring and visualizing target cloud (red).
 		pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZ>  target_color (cloud, 255, 0, 0);
 		viewer3->addPointCloud<pcl::PointXYZ> (cloud, target_color, "cloud");
 		viewer3->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "cloud");
-
 		pcl::visualization::PointCloudColorHandlerCustom<pcl::Normal>  normal_color (normals, 255, 255, 255);
 		viewer3->addPointCloudNormals<pcl::PointXYZ, pcl::Normal>(cloud, normals, 1, (0.1*(max.x-min.x)), "normals");
-
-
-		viewer3->addCoordinateSystem(0.3*(max.y-min.y));
-
 		while(!viewer3->wasStopped())
 		{
 			viewer3->spinOnce(100);
 			boost::this_thread::sleep(boost::posix_time::microseconds(100));
 		}
-		// cv::Mat  image=cv::Mat::zeros(1080, 1920, CV_8UC3);
-		// for(pcl::PointCloud<pcl::PointXYZ>::iterator pt = cloud_filtered->points.begin(); pt < cloud_filtered->points.end(); pt++)
-		// {
-		// 	std::cout<<pt->x <<" "<<pt->y <<" "<<pt->z <<std::endl;
-		// 	std::cout<<int(5000*pt->y)<<" "<<int(5000*pt->x)<<" "<< int(5000*pt->y)+500 <<" "<< int(5000*pt->x)+500 <<std::endl;
-		// 	image.at<cv::Vec3b>(int(5000*pt->y)+500,int(5000*pt->x)+500)[0]=int(5000*pt->x);
-		// 	image.at<cv::Vec3b>(int(5000*pt->y)+500,int(5000*pt->x)+500)[1]=int(5000*pt->y);
-		// 	image.at<cv::Vec3b>(int(5000*pt->y)+500,int(5000*pt->x)+500)[2]=int(5000*pt->z);
-
-		// 	std::cout<<pt->x <<" "<<pt->y <<" "<<pt->z <<std::endl;
-		// 	std::cout<<int(1000*pt->y)<<" "<<int(1000*pt->x)<<" "<< int(1000*pt->y)+100 <<" "<< int(1000*pt->x)+100 <<std::endl;
-		// 	image.at<cv::Vec3b>(int(1000*pt->y)+100,int(1000*pt->x)+100)[0]=int(1000*pt->x);
-		// 	image.at<cv::Vec3b>(int(1000*pt->y)+100,int(1000*pt->x)+100)[1]=int(1000*pt->y);
-		// 	image.at<cv::Vec3b>(int(1000*pt->y)+100,int(1000*pt->x)+100)[2]=int(1000*pt->z);
-		// }
-		// cv::imshow("image",image);
-		// cv::waitKey();
-		// cv::imwrite("image.png",image);
 	}
 	return 0;
 }

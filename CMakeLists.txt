@@ -32,13 +32,14 @@ add_subdirectory(src/demo)
 add_executable(normalEstimate_demo src/normalEstimate_demo.cpp src/dbscan.cpp)
 target_link_libraries (normalEstimate_demo ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} config pointcloud_helper)
 
+add_executable(defectdetect_demo src/DefectDetect_demo.cpp src/dbscan.cpp src/DefectDetect.cpp)
+target_link_libraries (defectdetect_demo ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} config pointcloud_helper)
+
 add_executable(normalEstimate_pcl_website src/normalEstimate_pcl_website.cpp )
 target_link_libraries (normalEstimate_pcl_website ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 
 add_executable(fit_plane_from_file src/fit_plane_from_file.cpp )
 target_link_libraries (fit_plane_from_file ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} config pointcloud_helper)
 
-add_executable(defectdetect_demo src/DefectDetect_demo.cpp src/dbscan.cpp)
-target_link_libraries (defectdetect_demo ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} config pointcloud_helper)
 
 
